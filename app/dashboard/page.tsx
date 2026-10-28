@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { admin } from '@/lib/supabase';
 import { money, thaiDate, thaiMonth } from '@/lib/format';
-import { CATEGORIES, type Slip } from '@/lib/types';
+import { CATEGORIES, ISSUE_KINDS, type Slip } from '@/lib/types';
+import { listStatements } from '@/lib/reconcile';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,19 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     .limit(5000);
   if (error) throw new Error(error.message);
 
+  // รายการไม่ตรงกับ Statement ล่าสุดที่ admin ยังไม่ได้ตรวจ
+  const latest = (await listStatements(1))[0] ?? null;
+  let unmatched: number | null = null;
+  if (latest?.matched_at) {
+    const { count } = await admin()
+      .from('matches')
+      .select('id', { count: 'exact', head: true })
+      .eq('statement_id', latest.id)
+      .in('kind', ISSUE_KINDS)
+      .eq('admin_status', 'pending');
+    unmatched = count ?? 0;
+  }
+
   const all = (data ?? []) as Slip[];
   const day = (s: Slip) => (s.slip_date ?? s.created_at).slice(0, 10);
   const months = [...new Set(all.map((s) => day(s).slice(0, 7)))].sort().reverse();
@@ -41,7 +55,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
   const total = slips.reduce((a, s) => a + (s.amount ?? 0), 0);
   const fee = slips.reduce((a, s) => a + (s.fee ?? 0), 0);
-  const pending = slips.filter((s) => s.status === 'pending').length;
   const top = slips.reduce<Slip | null>((m, s) => (!m || (s.amount ?? 0) > (m.amount ?? 0) ? s : m), null);
 
   const bins = [[1, 7], [8, 14], [15, 21], [22, 31]].map(([a, b]) => {
@@ -110,9 +123,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <div className="note">{top?.to_name ?? '-'} · {thaiDate(top ? day(top) : null)}</div>
             </div>
             <div className="kpi alert">
-              <div className="lbl">รอตรวจสอบ</div>
-              <div className="val">{pending} <small>ใบ</small></div>
-              <Link href="/review" className="note">ไปตรวจรายการ</Link>
+              <div className="lbl">ไม่ตรงกับ Statement</div>
+              <div className="val">{unmatched === null ? '—' : unmatched} <small>{unmatched === null ? '' : 'รายการ'}</small></div>
+              <Link href="/reconcile" className="note">{unmatched === null ? 'อัปโหลด Statement' : 'ไปตรวจผลจับคู่'}</Link>
             </div>
           </section>
 
@@ -168,7 +181,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             <section className="card latest" aria-label="สลิปล่าสุด" style={{ flex: '1.5 1 520px' }}>
               <div className="tl">
                 <h2>สลิปล่าสุด</h2>
-                <Link href="/review">ดูทั้งหมด</Link>
+                <Link href="/reconcile">ไปตรวจรายการจับคู่</Link>
               </div>
               <div className="tbl-wrap">
                 <table style={{ minWidth: 520 }}>

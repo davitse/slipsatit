@@ -200,7 +200,7 @@ export default function UploadClient() {
             })}
 
             <div className="queue-foot">
-              <Link href="/review" className="btn">ดูผลการอ่านสลิป →</Link>
+              <Link href="/reconcile" className="btn">ไปกระทบยอดกับ Statement →</Link>
             </div>
           </section>
         )}
@@ -209,7 +209,7 @@ export default function UploadClient() {
       <aside style={{ flex: '1 1 340px', maxWidth: 440, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24 }}>
         <section className="card pad">
           <h2>ข้อมูลที่ระบบอ่านจากสลิป</h2>
-          <p className="hint" style={{ marginBottom: 16 }}>แยกเป็นฟิลด์ให้แก้ไขได้ทีละช่องในขั้นตอนตรวจรายการ</p>
+          <p className="hint" style={{ marginBottom: 16 }}>ระบบนำข้อมูลเหล่านี้ไปเทียบกับ Statement และสรุปยอดบนแดชบอร์ด</p>
           <div className="group-title">ข้อมูลธุรกรรม</div>
           <div className="chips"><span className="chip">วันที่-เวลา</span><span className="chip">เลขที่อ้างอิง</span><span className="chip">ประเภทรายการ</span></div>
           <div className="group-title">ผู้โอน</div>

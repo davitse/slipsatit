@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 
 const items = [
   { href: '/', label: 'อัปโหลดสลิป' },
-  { href: '/review', label: 'ตรวจรายการ' },
+  { href: '/reconcile', label: 'ตรวจรายการจับคู่' },
   { href: '/dashboard', label: 'แดชบอร์ด' },
 ];
 

@@ -1,6 +1,6 @@
 {
   "name": "slipsatit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,7 +13,8 @@
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "unpdf": "^1.9.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

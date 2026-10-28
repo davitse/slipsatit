@@ -49,7 +49,7 @@ const CATEGORY_RULES: [RegExp, string][] = [
   [/ค่าบริการ|พิมพ์|ค่าเช่า|ซ่อม|บริการ/i, 'ค่าบริการ'],
 ];
 
-function normalize(raw: string): string {
+export function normalize(raw: string): string {
   return raw
     .replace(/ํา/g, 'ำ') // ํา -> ำ
     .replace(/[๐-๙]/g, (d) => String('๐๑๒๓๔๕๖๗๘๙'.indexOf(d)))
@@ -124,12 +124,12 @@ function parseRef(lines: string[]): string | null {
 }
 
 const MASK = /\b[xX*]{1,3}(?:[-\s]?[xX*0-9]{1,7}){1,3}\b/g;
-function findAcc(text: string): string | null {
+export function findAcc(text: string): string | null {
   const hits = (text.match(MASK) ?? []).filter((s) => /[xX*]/.test(s) && (s.match(/\d/g) ?? []).length >= 3);
   return hits.length ? hits[0].replace(/\s+/g, '').replace(/[X*]/g, 'x') : null;
 }
 
-function findBank(text: string): string | null {
+export function findBank(text: string): string | null {
   for (const [re, name] of BANKS) if (re.test(text)) return name;
   return null;
 }

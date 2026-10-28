@@ -156,3 +156,9 @@ legend { padding: 0; margin-bottom: 10px; font-size: 14px; font-weight: 600; col
   .topbar-in { padding: 0 16px; }
   .field-grid { grid-template-columns: 1fr; }
 }
+
+/* reconcile */
+.badge.plain { background: transparent; color: var(--muted); padding-left: 0; }
+.field textarea { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #8ca39b; background: #fff; color: var(--ink); font: inherit; font-size: 15px; resize: vertical; }
+.modal-bg { position: fixed; inset: 0; background: rgba(20, 33, 28, 0.6); display: flex; align-items: flex-start; justify-content: center; padding: 96px 16px 16px; z-index: 50; overflow-y: auto; }
+.modal { width: 100%; max-width: 580px; background: #fff; border-radius: 16px; padding: 28px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
