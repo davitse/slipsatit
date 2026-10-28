@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { ALLOWED_MIME, MAX_BYTES } from '@/lib/types';
+import { ocrImage } from '@/lib/ocr';
 
 type State = 'queued' | 'uploading' | 'reading' | 'done' | 'failed';
 type Item = { key: string; file: File; state: State; error?: string };
@@ -13,7 +14,7 @@ const CONCURRENCY = 2;
 const LABEL: Record<State, { text: string; cls: string; icon: string }> = {
   queued: { text: 'รอคิว', cls: 'wait', icon: 'M6 12h12' },
   uploading: { text: 'กำลังอัปโหลด', cls: 'run', icon: 'M12 6v6l4 2' },
-  reading: { text: 'กำลังอ่านสลิป', cls: 'run', icon: 'M12 6v6l4 2' },
+  reading: { text: 'กำลังอ่านสลิป (OCR)', cls: 'run', icon: 'M12 6v6l4 2' },
   done: { text: 'อ่านสำเร็จ', cls: 'ok', icon: 'M5 12l5 5L20 7' },
   failed: { text: 'ไม่สำเร็จ', cls: 'warn', icon: 'M12 8v5M12 17h.01' },
 };
@@ -63,7 +64,20 @@ export default function UploadClient() {
       if (up.error) throw new Error(up.error.message);
 
       patch(it.key, { state: 'reading' });
-      const ex = await fetch(`/api/slips/${initJson.id}/extract`, { method: 'POST' });
+      // OCR ในเบราว์เซอร์ (ฟรี) เฉพาะรูปภาพ ส่วน PDF ให้เซิร์ฟเวอร์จัดการ (ต้องเปิดโหมดสำรอง)
+      let ocr: { text: string; confidence: number } | null = null;
+      if (blob.type.startsWith('image/')) {
+        try {
+          ocr = await ocrImage(blob);
+        } catch {
+          ocr = null;
+        }
+      }
+      const ex = await fetch(`/api/slips/${initJson.id}/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ocr ? { text: ocr.text, ocr_confidence: ocr.confidence } : {}),
+      });
       const exJson = await ex.json();
       if (!ex.ok) throw new Error(exJson.error || 'อ่านสลิปไม่สำเร็จ');
       patch(it.key, { state: 'done' });

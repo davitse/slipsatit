@@ -4,7 +4,7 @@
 
 - **Frontend/Backend:** Next.js (App Router) + TypeScript
 - **Database + Storage:** Supabase (Postgres, bucket `slips` แบบ private)
-- **อ่านสลิป:** Claude vision (`@anthropic-ai/sdk`, ใช้ tool call เพื่อให้ได้ JSON ตาม schema)
+- **อ่านสลิป:** Tesseract.js OCR ในเบราว์เซอร์ (ฟรี) + ตัวแยกฟิลด์ `lib/parse.ts` ; ตัวสำรองเสียค่า API: Claude vision (`OCR_FALLBACK_CLAUDE=true`)
 - **Deploy:** Vercel
 
 ## SRS ↔ ส่วนของโค้ด
@@ -12,7 +12,7 @@
 | ข้อ | อยู่ที่ |
 |---|---|
 | อัปโหลดหลายสลิป / ตารางรายการ | `components/UploadClient.tsx`, `components/ReviewClient.tsx` |
-| แยกฟิลด์ตาม attribute | `lib/extract.ts` (schema), `supabase/migrations/0001_init.sql` (คอลัมน์) |
+| แยกฟิลด์ตาม attribute | `lib/parse.ts` (OCR ฟรี), `lib/extract.ts` (Claude สำรอง), `supabase/migrations/0001_init.sql` (คอลัมน์) |
 | แดชบอร์ดยอดรวม | `app/dashboard/page.tsx` |
 | Git / Supabase / Vercel | README นี้ |
 
@@ -44,3 +44,10 @@ npm run dev
 - ตาราง `slips` เปิด RLS และไม่มี policy: เข้าถึงได้เฉพาะจากเซิร์ฟเวอร์ด้วย service role
 - ยังไม่มีระบบแยกผู้ใช้ (multi-user) ถ้าต้องใช้หลายคน ให้เพิ่ม Supabase Auth และคอลัมน์ `user_id` + RLS policy
 - ค่าที่ OCR ได้อาจผิด จึงมีสถานะ "รอตรวจ/ตรวจแล้ว" และธงเตือนเมื่อความมั่นใจต่ำกว่า 80%
+
+## เวอร์ชัน
+
+- **0.2.0** อ่านสลิปด้วย Tesseract OCR ในเบราว์เซอร์ (ฟรี) แทน Claude เป็นค่าเริ่มต้น
+  - รหัสอ้างอิงที่ OCR อ่านอาจคลาดเคลื่อน 2–3 ตัวอักษร จึงไม่ใช้เป็นคีย์จับคู่
+  - ต้องตั้ง `NEXT_PUBLIC_SUPABASE_URL` และ `NEXT_PUBLIC_SUPABASE_ANON_KEY` ตามเดิม ส่วน `ANTHROPIC_API_KEY` ไม่จำเป็นอีกต่อไปถ้าไม่เปิดโหมดสำรอง
+- **0.1.0** อ่านสลิปด้วย Claude vision
