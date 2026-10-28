@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 
 const items = [
   { href: '/', label: 'อัปโหลดสลิป' },
+  { href: '/slips', label: 'ตารางสลิป' },
   { href: '/reconcile', label: 'ตรวจรายการจับคู่' },
   { href: '/dashboard', label: 'แดชบอร์ด' },
 ];

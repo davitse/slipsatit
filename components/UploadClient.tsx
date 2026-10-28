@@ -4,9 +4,11 @@ import { useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { ALLOWED_MIME, MAX_BYTES } from '@/lib/types';
 import { ocrImage } from '@/lib/ocr';
+import { money, thaiDate } from '@/lib/format';
+import type { Slip } from '@/lib/types';
 
 type State = 'queued' | 'uploading' | 'reading' | 'done' | 'failed';
-type Item = { key: string; file: File; state: State; error?: string };
+type Item = { key: string; file: File; state: State; error?: string; slip?: Slip };
 
 const MAX_FILES = 20;
 const CONCURRENCY = 2;
@@ -38,9 +40,48 @@ function size(n: number) {
   return n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
+function FragmentRow({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+function val(v: string | null | undefined) {
+  return v && v.trim() ? v : '—';
+}
+
+function SlipDetail({ s }: { s: Slip }) {
+  const groups: [string, [string, string][]][] = [
+    ['ข้อมูลธุรกรรม', [['วันที่-เวลา', `${thaiDate(s.slip_date)} · ${s.slip_time ?? '--:--'}`], ['เลขที่อ้างอิง', val(s.ref)], ['ประเภทรายการ', val(s.tx_type)]]],
+    ['ผู้โอน', [['ชื่อ', val(s.from_name)], ['ธนาคาร', val(s.from_bank)], ['เลขบัญชี', val(s.from_acc)]]],
+    ['ผู้รับ', [['ชื่อ', val(s.to_name)], ['ธนาคาร', val(s.to_bank)], ['เลขบัญชี', val(s.to_acc)]]],
+    ['จำนวนเงิน', [['จำนวนเงิน', `฿${money(s.amount)}`], ['ค่าธรรมเนียม', `฿${money(s.fee)}`]]],
+    ['ข้อมูลเพิ่มเติม', [['บันทึกช่วยจำ', val(s.memo)], ['หมวดหมู่', val(s.category)]]],
+  ];
+  const low = (s.confidence ?? 100) < 80;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {groups.map(([title, fields]) => (
+          <div key={title} style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent-dark)', marginBottom: 8 }}>{title}</div>
+            <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 15 }}>
+              {fields.map(([k, v]) => (
+                <div key={k}><dt style={{ fontSize: 13, color: 'var(--muted)' }}>{k}</dt><dd style={{ margin: 0, overflowWrap: 'anywhere' }}>{v}</dd></div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: 0, fontSize: 13, color: low ? 'var(--amber-fg)' : 'var(--muted)' }}>
+        ความมั่นใจในการอ่าน {s.confidence ?? '-'}%{low ? ' (ต่ำ) ' : ' · '}เลขที่อ้างอิงและชื่ออาจคลาดเคลื่อนเล็กน้อย ให้ admin ตรวจเทียบกับภาพสลิปที่ตารางสลิป
+      </p>
+    </div>
+  );
+}
+
 export default function UploadClient() {
   const [items, setItems] = useState<Item[]>([]);
   const [over, setOver] = useState(false);
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const patch = (key: string, p: Partial<Item>) => setItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...p } : x)));
@@ -66,21 +107,23 @@ export default function UploadClient() {
       patch(it.key, { state: 'reading' });
       // OCR ในเบราว์เซอร์ (ฟรี) เฉพาะรูปภาพ ส่วน PDF ให้เซิร์ฟเวอร์จัดการ (ต้องเปิดโหมดสำรอง)
       let ocr: { text: string; confidence: number } | null = null;
+      let ocrError = false;
       if (blob.type.startsWith('image/')) {
         try {
           ocr = await ocrImage(blob);
         } catch {
-          ocr = null;
+          ocrError = true;
         }
       }
       const ex = await fetch(`/api/slips/${initJson.id}/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ocr ? { text: ocr.text, ocr_confidence: ocr.confidence } : {}),
+        body: JSON.stringify(ocr ? { text: ocr.text, ocr_confidence: ocr.confidence } : ocrError ? { ocr_error: true } : {}),
       });
       const exJson = await ex.json();
       if (!ex.ok) throw new Error(exJson.error || 'อ่านสลิปไม่สำเร็จ');
-      patch(it.key, { state: 'done' });
+      patch(it.key, { state: 'done', slip: exJson.slip as Slip });
+      setOpenKey((k) => k ?? it.key);
     } catch (e) {
       patch(it.key, { state: 'failed', error: e instanceof Error ? e.message : 'ผิดพลาด' });
     }
@@ -200,7 +243,57 @@ export default function UploadClient() {
             })}
 
             <div className="queue-foot">
+              <Link href="/slips" className="btn ghost">ให้ admin ตรวจสอบที่ตารางสลิป</Link>
               <Link href="/reconcile" className="btn">ไปกระทบยอดกับ Statement →</Link>
+            </div>
+          </section>
+        )}
+
+        {items.some((i) => i.slip) && (
+          <section className="card" aria-label="ตารางสลิปที่อ่านได้" style={{ overflow: 'hidden' }}>
+            <div className="toolbar">
+              <h2 style={{ fontSize: 20 }}>สลิปที่อ่านได้ ({items.filter((i) => i.slip).length} ใบ)</h2>
+              <span style={{ fontSize: 14, color: 'var(--muted)' }}>กด "รายละเอียด" เพื่อดูข้อมูลทุกฟิลด์ที่อ่านได้จากสลิป</span>
+            </div>
+            <div className="tbl-wrap">
+              <table style={{ minWidth: 760 }}>
+                <thead>
+                  <tr>
+                    <th scope="col">วันที่-เวลา</th><th scope="col">ผู้รับ</th><th scope="col">ธนาคารผู้รับ</th>
+                    <th scope="col">หมวดหมู่</th><th scope="col" className="num">จำนวนเงิน (บาท)</th><th scope="col">ความมั่นใจ</th><th scope="col"><span className="sr">รายละเอียด</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.filter((i) => i.slip).map((i) => {
+                    const s = i.slip as Slip;
+                    const open = openKey === i.key;
+                    const low = (s.confidence ?? 100) < 80;
+                    return (
+                      <FragmentRow key={i.key}>
+                        <tr className={open ? 'sel' : undefined}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{thaiDate(s.slip_date)} · {s.slip_time ?? '--:--'}</td>
+                          <td>{val(s.to_name)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{val(s.to_bank)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{val(s.category)}</td>
+                          <td className="num">{money(s.amount)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}><span className={`badge ${low ? 'warn' : 'ok'}`}>{s.confidence ?? '-'}%</span></td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <button type="button" className="btn ghost small" aria-expanded={open} onClick={() => setOpenKey(open ? null : i.key)}>{open ? 'ซ่อน' : 'รายละเอียด'}</button>
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr>
+                            <td colSpan={7} style={{ background: 'var(--ground)', padding: 16 }}>
+                              <SlipDetail s={s} />
+                              <div style={{ marginTop: 12 }}><Link href={`/slips?slip=${s.id}`}>ตรวจสอบ/แก้ไขสลิปนี้ที่ตารางสลิป →</Link></div>
+                            </td>
+                          </tr>
+                        )}
+                      </FragmentRow>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </section>
         )}
@@ -209,7 +302,7 @@ export default function UploadClient() {
       <aside style={{ flex: '1 1 340px', maxWidth: 440, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24 }}>
         <section className="card pad">
           <h2>ข้อมูลที่ระบบอ่านจากสลิป</h2>
-          <p className="hint" style={{ marginBottom: 16 }}>ระบบนำข้อมูลเหล่านี้ไปเทียบกับ Statement และสรุปยอดบนแดชบอร์ด</p>
+          <p className="hint" style={{ marginBottom: 16 }}>แสดงให้ admin ตรวจที่ตารางสลิป แล้วนำไปเทียบกับ Statement และสรุปบนแดชบอร์ด</p>
           <div className="group-title">ข้อมูลธุรกรรม</div>
           <div className="chips"><span className="chip">วันที่-เวลา</span><span className="chip">เลขที่อ้างอิง</span><span className="chip">ประเภทรายการ</span></div>
           <div className="group-title">ผู้โอน</div>

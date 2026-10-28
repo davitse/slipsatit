@@ -7,7 +7,7 @@ import { MAX_BYTES } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-type Body = { text?: string; ocr_confidence?: number };
+type Body = { text?: string; ocr_confidence?: number; ocr_error?: boolean };
 
 // ขั้นที่ 2: รับข้อความที่ OCR ในเบราว์เซอร์อ่านได้ (ฟรี) แล้วแยกเป็นฟิลด์ลงตาราง
 // ถ้าอ่านวันที่/จำนวนเงินไม่ได้ และตั้ง OCR_FALLBACK_CLAUDE=true จะใช้ Claude อ่านแทน (เสียค่า API)
@@ -45,6 +45,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         amount: ex.amount ?? null, fee: ex.fee ?? 0, memo: ex.memo ?? null, category: ex.category ?? null,
         confidence: ex.confidence,
       };
+    }
+
+    if (!fields && body.ocr_error) {
+      return fail('โหลดตัวอ่านสลิป (OCR) ในเบราว์เซอร์ไม่สำเร็จ ตรวจอินเทอร์เน็ต (ต้องเข้าถึง cdn.jsdelivr.net ได้) แล้วกด "ลองใหม่"');
     }
 
     if (!fields) {
