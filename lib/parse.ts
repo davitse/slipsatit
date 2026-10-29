@@ -38,9 +38,10 @@ const BANKS: [RegExp, string][] = [
   [/อาคารสงเคราะห์|\bGHB\b/i, 'ธอส.'],
 ];
 
-const TITLE = '(?:นางสาว|นาย|นาง|น\\.ส\\.|นส\\.|ด\\.ช\\.|ด\\.ญ\\.|เด็กชาย|เด็กหญิง|MISS|MRS\\.?|MR\\.?|MS\\.?|บริษัท|บจก\\.?|หจก\\.?|ห้างหุ้นส่วน|ร้าน|การไฟฟ้า|การประปา)';
+const TITLE = '(?:นางสาว|นาย|นาง|น\\.ส\\.|นส\\.|ด\\.ช\\.|ด\\.ญ\\.|เด็กชาย|เด็กหญิง|MISS|MRS\\.?|MR\\.?|MS\\.?|บริษัท|บร[ิ]?ษัท|บจก\\.?|หจก\\.?|ห้างหุ้นส่วน|ร้าน|การไฟฟ้า|การประปา)';
 
 const CATEGORY_RULES: [RegExp, string][] = [
+  [/บัตรเครดิต|บัตรกรุงไทย|\bKTC\b|credit\s*card/i, 'ชำระบัตรเครดิต'],
   [/การไฟฟ้า|การประปา|ค่าน้ำ|ค่าไฟ|อินเทอร์เน็ต|internet|true|ais|dtac/i, 'สาธารณูปโภค'],
   [/น้ำมัน|ปั๊ม|ทางด่วน|แท็กซี่|taxi|grab|bolt|ค่ารถ|เดินทาง/i, 'เดินทาง'],
   [/เงินเดือน|ค่าจ้าง|ค่าแรง/i, 'ค่าจ้าง'],
@@ -52,6 +53,8 @@ const CATEGORY_RULES: [RegExp, string][] = [
 export function normalize(raw: string): string {
   return raw
     .replace(/ํา/g, 'ำ') // ํา -> ำ
+    .replace(/(^|[\s\d])๓(?=\s*\.?\s*ค\.)/g, '$1ต') // OCR อ่าน "ต.ค." เป็น "๓.ค." (ต้องทำก่อนแปลงเลขไทย)
+    .replace(/(\d{1,3})\.(\d{3})\.(\d{2})(?!\d)/g, '$1,$2.$3') // 22.237.64 -> 22,237.64
     .replace(/[๐-๙]/g, (d) => String('๐๑๒๓๔๕๖๗๘๙'.indexOf(d)))
     .replace(/\r/g, '')
     .replace(/[ \t]+/g, ' ');
@@ -114,8 +117,8 @@ function parseAmounts(lines: string[]): { amount: number | null; fee: number } {
 
 function parseRef(lines: string[]): string | null {
   for (let i = 0; i < lines.length; i++) {
-    if (/อ้างอิง|เลขที่รายการ|รหัสรายการ|Ref|Transaction\s*ID/i.test(lines[i])) {
-      const afterColon = lines[i].split(/[:：]/).slice(1).join('') || lines[i].replace(/^.*?(อ้างอิง|รายการ|Ref|ID)/i, '');
+    if (/อ.{0,3}างอิง|เลขที่รายการ|รหัสรายการ|Ref|Transaction\s*ID/i.test(lines[i])) {
+      const afterColon = lines[i].split(/[:：]/).slice(1).join('') || lines[i].replace(/^.*?(อ.{0,3}างอิง|รายการ|Ref|ID)/i, '');
       const cand = (afterColon || lines[i + 1] || '').replace(/[^A-Za-z0-9]/g, '');
       if (cand.length >= 10) return cand.slice(0, 40);
     }
@@ -125,6 +128,8 @@ function parseRef(lines: string[]): string | null {
 
 const MASK = /\b[xX*]{1,3}(?:[-\s]?[xX*0-9]{1,7}){1,3}\b/g;
 export function findAcc(text: string): string | null {
+  const card = /\b(\d{4,6})[xX*%#•]{4,8}(\d{4})\b/.exec(text); // เลขบัตร เช่น 430445XXXXXX8029
+  if (card) return `${card[1]}${'x'.repeat(16 - card[1].length - 4)}${card[2]}`;
   const hits = (text.match(MASK) ?? []).filter((s) => /[xX*]/.test(s) && (s.match(/\d/g) ?? []).length >= 3);
   return hits.length ? hits[0].replace(/\s+/g, '').replace(/[X*]/g, 'x') : null;
 }
@@ -142,18 +147,38 @@ function extractName(line: string, requireTitle: boolean): string | null {
   if (!t && requireTitle) return null;
   let name = t ? t[1] : line.replace(new RegExp(`^${LBL}(จาก|ไปยัง|ถึง|From|To|ผู้รับ|ผู้โอน)${END}`, 'i'), '');
   name = name
-    .replace(/[@|()\[\]{}_=~`^<>]/g, ' ')
+    .replace(/บรษัท/g, 'บริษัท') // แก้คำที่ OCR มักอ่านพลาด
+    .replace(/[ขจ]ำกัด/g, 'จำกัด')
+    .replace(/["'“”‘’`]/g, '')
+    .replace(/[@|\[\]{}_=~^<>]/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[^A-Za-zก-๙]+/, '')
     .trim();
   return name.length >= 3 ? name : null;
 }
 
+const reTitleStart = new RegExp(`^.{0,4}?${TITLE}`, 'i');
+
 function sections(lines: string[]) {
   const reFrom = new RegExp(`^${LBL}(จาก|From)${END}`, 'i');
   const reTo = new RegExp(`^${LBL}(ไปยัง|โอนไปยัง|ถึง|To|ผู้รับ)${END}`, 'i');
-  const iFrom = lines.findIndex((l) => reFrom.test(l));
-  const iTo = lines.findIndex((l, i) => i > iFrom && reTo.test(l));
+  let iFrom = lines.findIndex((l) => reFrom.test(l));
+  let iTo = lines.findIndex((l, i) => i > iFrom && reTo.test(l));
+  let labelled = true;
+  if (iFrom < 0 || iTo < 0) {
+    // OCR อ่านป้าย "จาก/ไปยัง" ไม่ออก: ใช้บรรทัดชื่อ (ขึ้นต้นด้วยคำนำหน้า) แทน ผู้โอนมาก่อนผู้รับ
+    labelled = false;
+    const names = lines.map((l, i) => (reTitleStart.test(l) ? i : -1)).filter((i) => i >= 0);
+    if (names.length >= 2) {
+      iFrom = names[0];
+      iTo = names[1];
+    } else if (names.length === 1) {
+      // ชื่อที่อ่านได้ 1 ชื่อถือเป็นผู้รับ ส่วนผู้โอนคือบรรทัดระหว่างรหัสอ้างอิงกับชื่อผู้รับ
+      iTo = names[0];
+      const r = lines.findIndex((l) => /อ.{0,3}างอิง|Ref/i.test(l));
+      iFrom = r >= 0 && r < iTo ? r + 1 : 0;
+    }
+  }
   const stop = (from: number) => {
     for (let i = from + 1; i < lines.length; i++) {
       if (new RegExp(`^${LBL}(จำนวน|ค่าธรรมเนียม|Amount|Fee|บันทึก|Memo|หมายเหตุ)`, 'i').test(lines[i])) return i;
@@ -162,7 +187,7 @@ function sections(lines: string[]) {
   };
   const fromSec = iFrom >= 0 ? lines.slice(iFrom, iTo > iFrom ? iTo : iFrom + 4) : [];
   const toSec = iTo >= 0 ? lines.slice(iTo, stop(iTo)) : [];
-  return { fromSec, toSec };
+  return { fromSec, toSec, labelled };
 }
 
 export function parseSlipText(raw: string, ocrConfidence = 70): Parsed {
@@ -173,14 +198,15 @@ export function parseSlipText(raw: string, ocrConfidence = 70): Parsed {
   const time = parseTime(text, end);
   const { amount, fee } = parseAmounts(lines);
   const ref = parseRef(lines);
-  const { fromSec, toSec } = sections(lines);
+  const { fromSec, toSec, labelled } = sections(lines);
 
   const fromText = fromSec.join('\n');
   const toText = toSec.join('\n');
   const pickName = (sec: string[]) => {
     if (!sec.length) return null;
     // บรรทัดแรก: ตัดป้ายกำกับออกแล้วถ้ามีชื่อให้ใช้เลย ไม่เช่นนั้นหาบรรทัดถัดไปที่ขึ้นต้นด้วยคำนำหน้า/ชื่อ
-    const first = extractName(sec[0], false);
+    // (ถ้าไม่มีป้ายกำกับ รับเฉพาะบรรทัดที่มีคำนำหน้า กันข้อความขยะจาก OCR)
+    const first = labelled ? extractName(sec[0], false) : extractName(sec[0], true);
     if (first) return first;
     for (const l of sec.slice(1)) {
       const n = extractName(l, true);
@@ -194,11 +220,17 @@ export function parseSlipText(raw: string, ocrConfidence = 70): Parsed {
   const to_acc = findAcc(toText);
 
   const header = lines.slice(0, 6).join(' ');
-  const to_bank = findBank(toText);
-  const from_bank = findBank(fromText) ?? findBank(header);
+  // ไม่นับบรรทัดชื่อ เพราะชื่อบริษัทอาจมีคำว่าธนาคาร เช่น "บริษัท บัตรกรุงไทย จำกัด"
+  const noName = (sec: string[]) => {
+    const k = sec.findIndex((x) => reTitleStart.test(x));
+    return sec.filter((_, i) => i !== k).join('\n');
+  };
+  const to_bank = findBank(noName(toSec));
+  const from_bank = findBank(noName(fromSec)) ?? findBank(header);
 
   let tx_type: string | null = null;
   if (/พร้อมเพย์|PromptPay/i.test(text)) tx_type = 'พร้อมเพย์';
+  else if (/จ่ายบิล|ชำระบิล/.test(text)) tx_type = 'จ่ายบิล';
   else if (/โอนเงิน/.test(text)) tx_type = 'โอนเงิน';
   else if (/ชำระ/.test(text)) tx_type = 'ชำระเงิน';
 
